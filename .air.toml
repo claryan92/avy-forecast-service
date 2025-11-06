@@ -1,0 +1,12 @@
+# air config: build cmd to compile the server in ./cmd/server
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/server"
+  bin = "./tmp/main"
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  exclude_dir = ["tmp", "vendor"]
+
+[log]
+  time = true
+
+[color]
+  enabled = true
