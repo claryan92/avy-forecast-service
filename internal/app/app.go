@@ -1,7 +1,6 @@
 package app
 
 import (
-	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -10,32 +9,46 @@ import (
 	"example.com/avalanche/internal/clients"
 	"example.com/avalanche/internal/db"
 	"example.com/avalanche/internal/handlers"
+	"example.com/avalanche/internal/models"
+	"example.com/avalanche/internal/notifier"
 	"example.com/avalanche/internal/services"
 
-	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type App struct {
-	DB      *sql.DB
+	DB      *gorm.DB
 	Service *services.ForecastService
 	Repo    *db.CenterRepository
 	Handler *handlers.ForecastHandler
 	Router  *http.ServeMux
 }
 
-// New initializes the application and its dependencies.
 func New() (*App, error) {
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = "postgres://postgres:postgres@db:5432/avalanche?sslmode=disable"
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://postgres:postgres@db:5432/avalanche?sslmode=disable"
 	}
 
-	pg, err := db.ConnectPostgres(connStr)
+	dbConn, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
-	repo := db.NewCenterRepository(pg)
+	// Auto-migrate database schema if enabled
+	if os.Getenv("ENABLE_AUTOMIGRATE") == "true" {
+		if err := dbConn.AutoMigrate(
+			&models.AvalancheCenter{},
+			&models.Forecast{},
+			&models.Subscription{},
+			&models.ForecastCache{},
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	repo := db.NewCenterRepository(dbConn)
 
 	httpClient := &clients.HTTPClient{
 		Client: &http.Client{Timeout: 10 * time.Second},
@@ -47,20 +60,54 @@ func New() (*App, error) {
 
 	handler := handlers.NewForecastHandlerWithRepo(service, repo)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/forecast", handler.GetForecast)
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	subRepo := db.NewSubscriptionRepository(dbConn)
 
-	return &App{
-		DB:      pg,
+	// Email sender for subscriptions
+	emailSender := notifier.NewSendGridEmailClient()
+
+	// Create SubscriptionService with all dependencies
+	subService := services.NewSubscriptionService(subRepo, repo, service, emailSender)
+
+	// Create SubscriptionHandler with the service
+	subHandler := handlers.NewSubscriptionHandler(subService)
+
+	app := &App{
+		DB:      dbConn,
 		Service: service,
 		Repo:    repo,
 		Handler: handler,
-		Router:  mux,
-	}, nil
+		Router:  http.NewServeMux(),
+	}
+
+	app.setupRoutes(subHandler)
+
+	return app, nil
+}
+
+// New method
+func (a *App) setupRoutes(subHandler *handlers.SubscriptionHandler) {
+	// Subscription routes
+	a.Router.HandleFunc("/api/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			subHandler.GetSubscriptions(w, r)
+		case http.MethodPost:
+			subHandler.CreateSubscription(w, r)
+		case http.MethodDelete:
+			subHandler.DeleteSubscription(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Forecast routes
+	a.Router.HandleFunc("/api/forecast", a.Handler.GetForecast)
+
+	// Health check
+	a.Router.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 }
 
 func (a *App) Run() {

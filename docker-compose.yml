@@ -1,69 +1,76 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:15
-    platform: linux/arm64
     restart: always
-    env_file:
-      - .env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-avy}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-avy}"]
       interval: 5s
-      timeout: 3s
+      timeout: 5s
       retries: 5
 
   flyway:
     image: flyway/flyway:10.18
-    platform: linux/arm64
-    command: -url=jdbc:postgresql://db:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -locations=filesystem:/migrations migrate
+    command: -url=jdbc:postgresql://db:5432/${POSTGRES_DB:-avy} -user=${POSTGRES_USER:-postgres} -password=${POSTGRES_PASSWORD:-postgres} -locations=filesystem:/migrations migrate
     volumes:
       - ./migrations:/migrations
     depends_on:
       db:
         condition: service_healthy
+
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file:
       - .env
-    restart: "on-failure"
+    depends_on:
+      db:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    restart: on-failure
 
   api:
     build:
       context: .
-      dockerfile: Dockerfile
-    platform: linux/arm64
-    restart: on-failure
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
-      PORT: ${PORT}
+      dockerfile: Dockerfile.api
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     depends_on:
+      db:
+        condition: service_healthy
       flyway:
         condition: service_completed_successfully
+    restart: on-failure
 
   api-dev:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    platform: linux/arm64
+    ports:
+      - "8081:8080"
     env_file:
       - .env
     volumes:
       - .:/app
-    command: air
-    ports:
-      - "8081:8080"
     depends_on:
       db:
         condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    restart: on-failure
 
 volumes:
   db_data:

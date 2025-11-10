@@ -37,6 +37,11 @@ func (s *ForecastService) GetForecastsForCenters(centerIDs []string, targetDate 
 		if err != nil {
 			return nil, err
 		}
+		for i := range forecasts {
+			if forecasts[i].AvalancheCenter.ID == "" {
+				forecasts[i].AvalancheCenter.ID = id
+			}
+		}
 		allForecasts = append(allForecasts, forecasts...)
 	}
 
@@ -60,17 +65,22 @@ func (s *ForecastService) ProcessForecasts(forecasts []models.Forecast) []models
 // BuildZoneForecasts constructs a map of zone forecasts keyed by zone ID.
 // Each zone forecast includes metadata, issued times, and available danger ratings.
 // Only the most recent forecast for each zone is retained.
+// Zone IDs are prefixed with the center ID (e.g., "10" becomes "NWAC_10").
 func (s *ForecastService) BuildZoneForecasts(forecasts []models.Forecast) map[string]*models.ZoneForecast {
 	zoneMap := make(map[string]*models.ZoneForecast)
 
 	for _, f := range forecasts {
+		centerID := f.AvalancheCenter.ID
+
 		for _, z := range f.ForecastZone {
-			if _, exists := zoneMap[z.ZoneID]; exists {
+			fullZoneID := centerID + "_" + z.ZoneID
+
+			if _, exists := zoneMap[fullZoneID]; exists {
 				continue
 			}
 
 			zf := &models.ZoneForecast{
-				ZoneID:     z.ZoneID,
+				ZoneID:     fullZoneID,
 				ZoneName:   z.Name,
 				Center:     f.AvalancheCenter.Name,
 				IssuedTime: f.PublishedTime.Format(time.RFC3339),
@@ -79,7 +89,6 @@ func (s *ForecastService) BuildZoneForecasts(forecasts []models.Forecast) map[st
 				BottomLine: bottomLineOrDefault(f),
 			}
 
-			// Attach available danger ratings.
 			for _, d := range f.Danger {
 				switch d.ValidDay {
 				case "current":
@@ -89,7 +98,7 @@ func (s *ForecastService) BuildZoneForecasts(forecasts []models.Forecast) map[st
 				}
 			}
 
-			zoneMap[z.ZoneID] = zf
+			zoneMap[fullZoneID] = zf
 		}
 	}
 

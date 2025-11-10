@@ -1,0 +1,22 @@
+<div style="font-family:Arial,sans-serif;line-height:1.5;color:#222;">
+  <h2 style="color:#b22222;">Avalanche Forecast Update</h2>
+  <p><strong>Zone:</strong> {{if .ZoneName}}{{.ZoneName}} ({{.ZoneID}}){{else}}{{.ZoneID}}{{end}}<br/>
+     <strong>Issued:</strong> {{.IssuedAt}}</p>
+  {{if .Today}}
+  <h3 style="margin-top:16px;color:#b22222;">Today</h3>
+  <p>
+    Upper: {{.Today.Upper}} | Middle: {{.Today.Middle}} | Lower: {{.Today.Lower}}<br/>
+    {{if .Today.Message}}<em>{{.Today.Message}}</em>{{end}}
+  </p>
+  {{end}}
+  {{if .Tomorrow}}
+  <h3 style="margin-top:16px;color:#b22222;">Tomorrow</h3>
+  <p>
+    Upper: {{.Tomorrow.Upper}} | Middle: {{.Tomorrow.Middle}} | Lower: {{.Tomorrow.Lower}}<br/>
+    {{if .Tomorrow.Message}}<em>{{.Tomorrow.Message}}</em>{{end}}
+  </p>
+  {{end}}
+  <p style="margin-top:20px;">More details: <a href="{{.CenterLink}}" style="color:#0645ad;">Visit center website</a></p>
+  <hr style="margin:20px 0;border:none;border-top:1px solid #ccc;">
+  <p style="font-size:14px;color:#555;">Stay safe,<br/>Avy Notifier</p>
+</div>
